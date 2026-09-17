@@ -1,0 +1,31 @@
+[
+    {
+        "id": "a155e53625c85eb4",
+        "type": "inject",
+        "z": "tab_erp_sync",
+        "name": "Trigger at 12:10 p.m.",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "16 12 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 300,
+        "y": 80,
+        "wires": [
+            [
+                "93852547bbb54dee"
+            ]
+        ]
+    }
+]
