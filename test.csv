@@ -1,0 +1,5 @@
+item_code,qty,warehouse
+ITEM-001,50,Stores - SD
+ITEM-002,120,Stores - SD
+ITEM-003,0,Stores - SD
+NEWITEM-999,25,Stores - SD

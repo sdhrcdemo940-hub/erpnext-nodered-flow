@@ -1,0 +1,7 @@
+[
+  {"id": "tab_new", "type": "tab", "label": "Simple Sync - WORKING", "disabled": false, "info": ""},
+  {"id": "inject1", "type": "inject", "z": "tab_new", "name": "Test Trigger", "props": [{"p": "payload"}], "repeat": "", "crontab": "", "once": false, "onceDelay": 0.1, "topic": "", "payload": "/data/csv-drop/test.csv", "payloadType": "str", "x": 100, "y": 80, "wires": [["file1"]]},
+  {"id": "file1", "type": "file in", "z": "tab_new", "name": "Read File", "filename": "/data/csv-drop/test.csv", "filenameType": "str", "format": "utf8", "chunk": false, "sendError": false, "encoding": "none", "allProps": false, "x": 280, "y": 80, "wires": [["csv1"]]},
+  {"id": "csv1", "type": "csv", "z": "tab_new", "name": "CSV Parser", "sep": ",", "hdrin": true, "hdrout": "none", "multi": "one", "ret": "\\n", "temp": "", "skip": "0", "strings": true, "include_empty_strings": "", "include_null_values": "", "x": 460, "y": 80, "wires": [["debug1"]]},
+  {"id": "debug1", "type": "debug", "z": "tab_new", "name": "", "active": true, "tosidebar": true, "console": false, "tostatus": false, "complete": "payload", "targetType": "msg", "x": 640, "y": 80, "wires": []}
+]

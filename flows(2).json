@@ -1,30 +1,21 @@
 [
     {
-        "id": "a155e53625c85eb4",
-        "type": "inject",
+        "id": "n_config",
+        "type": "function",
         "z": "tab_erp_sync",
-        "name": "Trigger at 12:10 p.m.",
-        "props": [
-            {
-                "p": "payload"
-            },
-            {
-                "p": "topic",
-                "vt": "str"
-            }
-        ],
-        "repeat": "",
-        "crontab": "16 12 * * *",
-        "once": false,
-        "onceDelay": 0.1,
-        "topic": "",
-        "payload": "",
-        "payloadType": "date",
-        "x": 300,
-        "y": 80,
+        "name": "Config + Map CSV Row",
+        "func": "// ---- CONFIG: edit these, or set as Node-RED env vars with the same names ----\nconst ERP_BASE_URL = env.get('ERP_BASE_URL') || 'http://frontend:8080';\nconst ERP_API_KEY = env.get('ERP_API_KEY') || '963647fef4e3160';\nconst ERP_API_SECRET = env.get('ERP_API_SECRET') || 'ca26dff8278a440';\nconst DEFAULT_WAREHOUSE = env.get('ERP_DEFAULT_WAREHOUSE') || 'Stores - SD';\n\nmsg.erp = {\n    baseUrl: ERP_BASE_URL,\n    authHeader: 'token ' + ERP_API_KEY + ':' + ERP_API_SECRET\n};\n\n// ---- CSV ROW MAPPING ----\n// TODO: once the supplier's real CSV headers are known, update the\n// row.xxx field names below to match them exactly (case-sensitive).\nconst row = msg.payload;\n\nmsg.item = {\n    item_code: row.item_code,\n    csv_qty: Number(row.qty),\n    warehouse: row.warehouse || DEFAULT_WAREHOUSE\n};\n\nif (!msg.item.item_code || isNaN(msg.item.csv_qty)) {\n    node.warn('Skipping row with missing item_code or invalid qty: ' + JSON.stringify(row));\n    return null;\n}\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 250,
+        "y": 300,
         "wires": [
             [
-                "93852547bbb54dee"
+                "n_bin_url"
             ]
         ]
     }
