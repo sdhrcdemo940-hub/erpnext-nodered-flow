@@ -1,0 +1,748 @@
+[
+    {
+        "id": "tab_erp_sync",
+        "type": "tab",
+        "label": "ERPNext Inventory Sync",
+        "disabled": false,
+        "info": "Auto-updates ERPNext v16 stock from a CSV dropped into a watched folder.\n\nBEFORE FIRST RUN:\n1. Manage Palette -> install 'node-red-node-watch'.\n2. Open the 'Config + Map CSV Row' function node and set:\n   - ERP_BASE_URL, ERP_API_KEY, ERP_API_SECRET, DEFAULT_WAREHOUSE\n   (or set them as Node-RED environment variables of the same name).\n3. Open 'Watch CSV folder' and point 'files' at your real drop folder path\n   (make sure that host path is mounted into the Node-RED container).\n4. Once you have a real sample CSV, edit the CSV field mapping\n   (item_code / qty / warehouse) inside 'Config + Map CSV Row' to match\n   the actual column headers.\n5. Check the placeholder item_group / stock_uom in 'Build Create Item Payload'\n   if new items ever need to be auto-created.\n6. Use the 'Manual Test Trigger' inject node to run the flow against a\n   test file path without waiting for a real folder-drop."
+    },
+    {
+        "id": "n_comment_top",
+        "type": "comment",
+        "z": "tab_erp_sync",
+        "name": "READ ME - see tab info panel for setup steps",
+        "info": "",
+        "x": 790,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "n_manual_test",
+        "type": "inject",
+        "z": "tab_erp_sync",
+        "name": "Manual Test Trigger",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "/data/csv-drop/test.csv",
+        "payloadType": "str",
+        "x": 190,
+        "y": 220,
+        "wires": [
+            [
+                "n_delay"
+            ]
+        ]
+    },
+    {
+        "id": "n_delay",
+        "type": "delay",
+        "z": "tab_erp_sync",
+        "name": "Wait for file write to finish",
+        "pauseType": "delay",
+        "timeout": "2",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 490,
+        "y": 220,
+        "wires": [
+            [
+                "n_fileread"
+            ]
+        ]
+    },
+    {
+        "id": "n_fileread",
+        "type": "file in",
+        "z": "tab_erp_sync",
+        "name": "Read CSV file",
+        "filename": "payload",
+        "filenameType": "msg",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 720,
+        "y": 220,
+        "wires": [
+            [
+                "f076d3be1955bd9c"
+            ]
+        ]
+    },
+    {
+        "id": "n_csv",
+        "type": "csv",
+        "z": "tab_erp_sync",
+        "name": "Parse CSV rows",
+        "sep": ",",
+        "hdrin": true,
+        "hdrout": "all",
+        "multi": "mult",
+        "ret": "\\n",
+        "temp": "",
+        "skip": "0",
+        "strings": true,
+        "include_empty_strings": "",
+        "include_null_values": "",
+        "x": 300,
+        "y": 480,
+        "wires": [
+            [
+                "0a34dd280e321e46"
+            ]
+        ]
+    },
+    {
+        "id": "n_config",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Config + Map CSV Row",
+        "func": "// ---- CONFIG: edit these, or set as Node-RED env vars with the same names ----\nconst ERP_BASE_URL = env.get('ERP_BASE_URL') || 'http://frontend:8080';\nconst ERP_API_KEY = env.get('ERP_API_KEY') || 'YOUR_ERPNEXT_API_KEY';\nconst ERP_API_SECRET = env.get('ERP_API_SECRET') || 'YOUR_ERPNEXT_API_SECRET';\nconst DEFAULT_WAREHOUSE = env.get('ERP_DEFAULT_WAREHOUSE') || 'Stores - SD';\n\nmsg.erp = {\n    baseUrl: ERP_BASE_URL,\n    authHeader: 'token ' + ERP_API_KEY + ':' + ERP_API_SECRET\n};\n\n// ---- CSV ROW MAPPING ----\n// TODO: once the supplier's real CSV headers are known, update the\n// row.xxx field names below to match them exactly (case-sensitive).\nconst map = msg.dynamicMapping;\nconst row = msg.payload;\n\nif (!map) {\n    node.warn('No mapping available for this row - skipping');\n    return null;\n}\n\nmsg.item = {\n    item_code: row[map.item_code],\n    csv_qty: Number(row[map.qty]),\n    warehouse: (map.warehouse && row[map.warehouse]) || DEFAULT_WAREHOUSE\n};\n\n\nif (!msg.item.item_code || isNaN(msg.item.csv_qty)) {\n    node.warn('Skipping row with missing item_code or invalid qty: ' + JSON.stringify(row));\n    return null;\n}\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 250,
+        "y": 560,
+        "wires": [
+            [
+                "n_bin_url"
+            ]
+        ]
+    },
+    {
+        "id": "n_bin_url",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Build Bin lookup URL",
+        "func": "const filters = JSON.stringify([[\"item_code\", \"=\", msg.item.item_code], [\"warehouse\", \"=\", msg.item.warehouse]]);\nconst fields = JSON.stringify([\"actual_qty\"]);\n\nmsg.url = `${msg.erp.baseUrl}/api/resource/Bin?filters=${encodeURIComponent(filters)}&fields=${encodeURIComponent(fields)}`;\nmsg.method = 'GET';\nmsg.headers = { 'Authorization': msg.erp.authHeader };\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 480,
+        "y": 560,
+        "wires": [
+            [
+                "n_http_bin"
+            ]
+        ]
+    },
+    {
+        "id": "n_http_bin",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "GET current stock (Bin)",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 750,
+        "y": 560,
+        "wires": [
+            [
+                "n_delta"
+            ]
+        ]
+    },
+    {
+        "id": "n_delta",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Compute Delta",
+        "func": "const currentQty = (msg.payload && msg.payload.data && msg.payload.data.length > 0)\n    ? Number(msg.payload.data[0].actual_qty) : 0;\n\nconst delta = msg.item.csv_qty - currentQty;\nmsg.item.currentQty = currentQty;\nmsg.item.delta = delta;\nmsg.item.absQty = Math.abs(delta);\nmsg.item.entryType = delta >= 0 ? 'Material Receipt' : 'Material Issue';\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 960,
+        "y": 560,
+        "wires": [
+            [
+                "n_switch_delta"
+            ]
+        ]
+    },
+    {
+        "id": "n_switch_delta",
+        "type": "switch",
+        "z": "tab_erp_sync",
+        "name": "Delta != 0 ?",
+        "property": "item.delta",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "neq",
+                "v": "0",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 150,
+        "y": 640,
+        "wires": [
+            [
+                "n_item_url"
+            ],
+            [
+                "n_skip_log"
+            ]
+        ]
+    },
+    {
+        "id": "n_skip_log",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Skipped (no change) log",
+        "func": "msg.payload = `\\u23ED Skipped ${msg.item.item_code} - CSV qty matches current stock (${msg.item.csv_qty})`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 170,
+        "y": 720,
+        "wires": [
+            [
+                "n_debug"
+            ]
+        ]
+    },
+    {
+        "id": "n_item_url",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Build Item Check URL",
+        "func": "msg.url = `${msg.erp.baseUrl}/api/resource/Item/${encodeURIComponent(msg.item.item_code)}`;\nmsg.method = 'GET';\nmsg.headers = { 'Authorization': msg.erp.authHeader };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 640,
+        "wires": [
+            [
+                "n_http_item_check"
+            ]
+        ]
+    },
+    {
+        "id": "n_http_item_check",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "Check Item exists",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 650,
+        "y": 640,
+        "wires": [
+            [
+                "n_switch_item"
+            ]
+        ]
+    },
+    {
+        "id": "n_switch_item",
+        "type": "switch",
+        "z": "tab_erp_sync",
+        "name": "Item exists?",
+        "property": "statusCode",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "200",
+                "vt": "num"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 890,
+        "y": 640,
+        "wires": [
+            [
+                "n_build_entry"
+            ],
+            [
+                "n_create_item_payload"
+            ]
+        ]
+    },
+    {
+        "id": "n_create_item_payload",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Build Create Item Payload",
+        "func": "// TODO: set real defaults for your item master before relying on auto-create\nmsg.url = `${msg.erp.baseUrl}/api/resource/Item`;\nmsg.method = 'POST';\nmsg.headers = { 'Authorization': msg.erp.authHeader, 'Content-Type': 'application/json' };\nmsg.payload = {\n    item_code: msg.item.item_code,\n    item_name: msg.item.item_code,\n    item_group: 'All Item Groups',\n    stock_uom: 'Nos'\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 230,
+        "y": 780,
+        "wires": [
+            [
+                "n_http_create_item"
+            ]
+        ]
+    },
+    {
+        "id": "n_http_create_item",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "Create Item",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 490,
+        "y": 780,
+        "wires": [
+            [
+                "n_build_entry"
+            ]
+        ]
+    },
+    {
+        "id": "n_build_entry",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Build Stock Entry Payload",
+        "func": "const it = msg.item;\nconst body = {\n    stock_entry_type: it.entryType,\n    items: [\n        {\n            item_code: it.item_code,\n            qty: it.absQty\n        }\n    ]\n};\n\nif (it.entryType === 'Material Receipt') {\n    body.items[0].t_warehouse = it.warehouse;\n} else {\n    body.items[0].s_warehouse = it.warehouse;\n}\n\nmsg.url = `${msg.erp.baseUrl}/api/resource/Stock Entry`;\nmsg.method = 'POST';\nmsg.headers = { 'Authorization': msg.erp.authHeader, 'Content-Type': 'application/json' };\nmsg.payload = body;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 730,
+        "y": 780,
+        "wires": [
+            [
+                "n_http_create_entry"
+            ]
+        ]
+    },
+    {
+        "id": "n_http_create_entry",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "Create Stock Entry (draft)",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 970,
+        "y": 780,
+        "wires": [
+            [
+                "n_build_submit"
+            ]
+        ]
+    },
+    {
+        "id": "n_build_submit",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Build Submit Request",
+        "func": "if (!msg.payload || !msg.payload.data || !msg.payload.data.name) {\n    msg.payload = 'ERROR creating Stock Entry for ' + msg.item.item_code + ': ' + JSON.stringify(msg.payload);\n    return [null, msg];\n}\n\nmsg.entryName = msg.payload.data.name;\nmsg.url = `${msg.erp.baseUrl}/api/resource/Stock Entry/${encodeURIComponent(msg.entryName)}`;\nmsg.method = 'PUT';\nmsg.headers = { 'Authorization': msg.erp.authHeader, 'Content-Type': 'application/json' };\nmsg.payload = { docstatus: 1 };\nreturn [msg, null];",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 180,
+        "y": 880,
+        "wires": [
+            [
+                "n_http_submit"
+            ],
+            [
+                "n_error_log"
+            ]
+        ]
+    },
+    {
+        "id": "n_http_submit",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "Submit Stock Entry",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 430,
+        "y": 880,
+        "wires": [
+            [
+                "n_success_log"
+            ]
+        ]
+    },
+    {
+        "id": "n_success_log",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Success log",
+        "func": "msg.payload = `\\u2705 ${msg.item.item_code}: ${msg.item.entryType} of ${msg.item.absQty} (delta ${msg.item.delta}) - Stock Entry ${msg.entryName} submitted`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 880,
+        "wires": [
+            [
+                "n_debug"
+            ]
+        ]
+    },
+    {
+        "id": "n_error_log",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Error log",
+        "func": "msg.payload = `\\u274C Error for ${msg.item ? msg.item.item_code : 'unknown item'}: ${JSON.stringify(msg.payload)}`;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 540,
+        "y": 940,
+        "wires": [
+            [
+                "n_debug"
+            ]
+        ]
+    },
+    {
+        "id": "n_debug",
+        "type": "debug",
+        "z": "tab_erp_sync",
+        "name": "Sync Log",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 900,
+        "y": 920,
+        "wires": []
+    },
+    {
+        "id": "0a34dd280e321e46",
+        "type": "split",
+        "z": "tab_erp_sync",
+        "name": "",
+        "splt": "\\n",
+        "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "stream": false,
+        "addname": "",
+        "property": "payload",
+        "x": 590,
+        "y": 480,
+        "wires": [
+            [
+                "790f3520821305b3"
+            ]
+        ]
+    },
+    {
+        "id": "790f3520821305b3",
+        "type": "delay",
+        "z": "tab_erp_sync",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "1",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 850,
+        "y": 480,
+        "wires": [
+            [
+                "n_config"
+            ]
+        ]
+    },
+    {
+        "id": "a155e53625c85eb4",
+        "type": "inject",
+        "z": "tab_erp_sync",
+        "name": "Trigger at 12:10 p.m.",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "16 12 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 300,
+        "y": 80,
+        "wires": [
+            [
+                "93852547bbb54dee"
+            ]
+        ]
+    },
+    {
+        "id": "e3b8c542a14e460a",
+        "type": "inject",
+        "z": "tab_erp_sync",
+        "name": "Trigger at 9:00 a.m.",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "00 09 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 300,
+        "y": 40,
+        "wires": [
+            [
+                "93852547bbb54dee"
+            ]
+        ]
+    },
+    {
+        "id": "aa600533e286569a",
+        "type": "inject",
+        "z": "tab_erp_sync",
+        "name": "Trigger at 5:00 p.m.",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "06 17 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 300,
+        "y": 120,
+        "wires": [
+            [
+                "93852547bbb54dee"
+            ]
+        ]
+    },
+    {
+        "id": "93852547bbb54dee",
+        "type": "exec",
+        "z": "tab_erp_sync",
+        "command": "ls",
+        "addpay": "",
+        "append": "-1 /data/csv-drop/*.csv 2>/dev/null",
+        "useSpawn": "false",
+        "timer": "",
+        "winHide": false,
+        "oldrc": false,
+        "name": "",
+        "x": 510,
+        "y": 80,
+        "wires": [
+            [
+                "eb6558c2b64a8a73"
+            ],
+            [
+                "eb6558c2b64a8a73"
+            ],
+            [
+                "eb6558c2b64a8a73"
+            ]
+        ]
+    },
+    {
+        "id": "eb6558c2b64a8a73",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "function 1",
+        "func": "const stdout = (msg.payload ? msg.payload.toString() : '').trim();\nconst files = stdout ? stdout.split('\\n').map(f => f.trim()).filter(Boolean) : [];\n\nlet processed = flow.get('processedCsvFiles') || [];\nconst newFiles = files.filter(f => !processed.includes(f));\n\nif (newFiles.length === 0) {\n    return null;\n}\n\nprocessed = processed.concat(newFiles);\nflow.set('processedCsvFiles', processed);\n\nreturn [ newFiles.map(f => ({ payload: f })) ];\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 680,
+        "y": 80,
+        "wires": [
+            [
+                "n_delay"
+            ]
+        ]
+    },
+    {
+        "id": "f076d3be1955bd9c",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "function 2",
+        "func": "msg.rawCsv = msg.payload;\nconst lines = msg.rawCsv.split('\\n').filter(Boolean);\nconst headerLine = lines[0];\nconst sampleLine = lines[1] || '';\nconst prompt =`Here are column headers from a supplier's raw material delivery CSV, plus one sample data row.\n\nHeaders: ${headerLine}\nSample row: ${sampleLine}\n\nMap these headers to these canonical fields: item_code (the material/product code), qty (quantity received), warehouse (destination warehouse, if present).\n\nRespond ONLY with a raw JSON object, no markdown, no explanation, in exactly this shape:\n{\"item_code\": \"<header name>\", \"qty\": \"<header name>\", \"warehouse\": \"<header name or null>\"}`;\nconst GEMINI_API_KEY = env.get('GEMINI_API_KEY') || 'REPLACE_YOUR_GEMINI_API_KEY';\nmsg.url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent';\nmsg.method = 'POST';\nmsg.headers = {\n    'x-goog-api-key': GEMINI_API_KEY,\n    'content-type' : 'application/json'\n};\nmsg.payload = {\n    contents: [{ parts: [{ text: prompt }] }]\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 220,
+        "wires": [
+            [
+                "6f78db0e195f584e"
+            ]
+        ]
+    },
+    {
+        "id": "102c141fdb739dfc",
+        "type": "function",
+        "z": "tab_erp_sync",
+        "name": "Parse Gemini mapping + restore CSV",
+        "func": "try {\n    const text = msg.payload.candidates[0].content.parts[0].text.trim();\n    const cleaned = text.replace(/```json|```/g, '').trim();\n    msg.dynamicMapping = JSON.parse(cleaned);\n} catch (e) {\n    node.warn('Failed to parse Gemini header mapping: ' + JSON.stringify(msg.payload));\n    return null; // don't process this file with a broken mapping\n}\n\nmsg.payload = msg.rawCsv; // restore the original CSV text\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 850,
+        "y": 380,
+        "wires": [
+            [
+                "n_csv"
+            ]
+        ]
+    },
+    {
+        "id": "6f78db0e195f584e",
+        "type": "http request",
+        "z": "tab_erp_sync",
+        "name": "Call Gemini for header mapping",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 830,
+        "y": 300,
+        "wires": [
+            [
+                "102c141fdb739dfc"
+            ]
+        ]
+    }
+]
