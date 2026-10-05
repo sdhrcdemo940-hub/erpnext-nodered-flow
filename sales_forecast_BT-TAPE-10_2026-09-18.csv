@@ -1,0 +1,6 @@
+Month,Actual Qty,SMA Forecast,WMA Forecast,Trend Forecast,Type
+2026-07,252,,,,Historical
+2026-08,322,,,,Historical
+2026-09,,287,299,392,Forecast
+2026-10,,287,299,462,Forecast
+2026-11,,287,299,532,Forecast

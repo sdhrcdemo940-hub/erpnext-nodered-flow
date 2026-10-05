@@ -1,4 +1,4 @@
-item_code,qty,warehouse
+Code_of_Item,qty_of_the_item,warehouse_where_it_will_be_located
 ITEM-001,50,Stores - SD
 ITEM-002,120,Stores - SD
 ITEM-003,0,Stores - SD
